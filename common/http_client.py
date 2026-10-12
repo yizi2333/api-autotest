@@ -53,6 +53,54 @@ def _mask_header(name: str, value: str) -> str:
     return _mask(value)
 
 
+# ★★ 体内容里的敏感字段名。
+#
+#   教训：脱敏必须覆盖「值可能出现的**所有位置**」——
+#   我第一版只脱敏了【请求头】，看到输出里写着「✅ 已脱敏」就以为安全了。
+#   结果：密码明文躺在**请求体**里，token 明文躺在**响应体**里，两个都没管。
+#
+#   **修了一半比没修更危险 —— 因为它给你一种"已经安全了"的错觉。**
+SENSITIVE_BODY_KEYS = {
+    "password", "passwd", "pwd",
+    "token", "access_token", "refresh_token", "id_token",
+    "secret", "apikey", "api_key",
+    "session", "sessionid", "session_id",
+}
+
+
+def _redact_node(node):
+    """递归把字典/列表里敏感字段的值打码（原地修改）。"""
+    if isinstance(node, dict):
+        for key, value in node.items():
+            if isinstance(value, str) and key.lower() in SENSITIVE_BODY_KEYS:
+                node[key] = _mask(value)
+            else:
+                _redact_node(value)
+    elif isinstance(node, list):
+        for item in node:
+            _redact_node(item)
+
+
+def _redact_body(text: str) -> str:
+    """把 JSON 体里的敏感字段打码；不是 JSON 就原样返回。
+
+    ★ 为什么只处理 JSON：JSON 有字段名，能可靠识别哪些是敏感值。
+      表单编码 / 二进制体没有统一结构，硬做容易既漏又误伤 ——
+      那种情况下的正确做法是**干脆不留存体内容**，而不是猜。
+    """
+    if not text:
+        return text
+    stripped = text.strip()
+    if not stripped or stripped[0] not in "{[":
+        return text
+    try:
+        data = json.loads(stripped)
+    except ValueError:
+        return text          # 不是合法 JSON，原样返回（不做猜测式替换）
+    _redact_node(data)
+    return json.dumps(data, ensure_ascii=False)
+
+
 class ApiResponse:
     """对 `requests.Response` 的轻量包装，额外带上耗时和请求快照。"""
 
@@ -110,6 +158,8 @@ class ApiResponse:
                 body = repr(body)          # 二进制体就存 repr，别让它把整个留存搞崩
         elif body is None:
             body = ""
+        # ★ 请求体里也会有敏感值（登录请求的 password 就在这）
+        body = _redact_body(body)
 
         lines = [
             "=========== REQUEST ===========",
@@ -121,7 +171,8 @@ class ApiResponse:
             f"HTTP {self.status_code}  ({self.elapsed_ms:.1f} ms, {self.body_bytes} bytes)",
             *[f"{k}: {_mask_header(k, str(v))}" for k, v in self.headers.items()],
             "",
-            self.text,
+            # ★ 响应体里也会有敏感值（登录响应里的 token 就在这）
+            _redact_body(self.text),
         ]
         path.write_text("\n".join(lines), encoding="utf-8")
         return path
