@@ -94,7 +94,15 @@ foreach ($f in $tracked) {
         if ($m1) { $absHits += $m1 }
     }
 
-    $m2 = Select-String -Path $f -Pattern 'gho_|ghp_|github_pat_|-----BEGIN [A-Z ]*PRIVATE KEY' -Encoding UTF8 -CaseSensitive -EA SilentlyContinue
+    # ★ 为什么模式要写得这么"啰嗦"（带最小长度），而不是简单的 'gho_|ghp_|...'：
+    #   ① 真实的 GitHub token 都是几十个字符的长串，加最小长度能少很多误报；
+    #   ② 更关键的是 —— 简单模式会**匹配到它自己**！
+    #      这一行里就写着 `gho_`，于是检查脚本把自己举报成"凭据泄漏"了。
+    #      我当时收到的报告是 ❌ 不通过，指向的却是检查脚本的第 97 行。
+    #      修法不是"把自己排除"，而是把规则写准确：规则本身要能被自己的规则检验。
+    $m2 = Select-String -Path $f `
+        -Pattern 'gh[opsu]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|-----BEGIN [A-Z ]{0,20}PRIVATE KEY' `
+        -Encoding UTF8 -CaseSensitive -EA SilentlyContinue
     if ($m2) { $secretHits += $m2 }
 }
 if ($absHits)    { WARN "无硬编码绝对路径" ("$($absHits.Count) 处，例如 $($absHits[0].Filename):$($absHits[0].LineNumber)") }
