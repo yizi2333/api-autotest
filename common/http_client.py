@@ -23,6 +23,35 @@ import requests
 
 ARTIFACT_DIR = Path(__file__).resolve().parent.parent / "report" / "artifacts"
 
+# ★ 留存时要脱敏的请求/响应头。
+#   为什么必须做：CI 里 `upload-artifact` 上传的正是 `report/` ——
+#   如果不脱敏，token / cookie 会跟着 artifact 一起被上传并在网页上可下载。
+#   本项目里那只是个一次性测试 token，但**"把凭证写进可下载产物"这个模式本身是错的**。
+SENSITIVE_HEADERS = {"authorization", "cookie", "set-cookie", "x-api-key", "proxy-authorization"}
+
+
+def _mask(value: str) -> str:
+    """保留一小段前缀便于比对，其余打码。
+
+    留前缀是有意的：排错时你往往需要确认"是不是同一个 token"，
+    而不是需要 token 的完整值。
+    """
+    if len(value) <= 16:
+        return "***已脱敏***"
+    return f"{value[:8]}…***已脱敏***"
+
+
+def _mask_header(name: str, value: str) -> str:
+    """按头名决定要不要脱敏。非敏感头原样返回。"""
+    if name.lower() not in SENSITIVE_HEADERS:
+        return value
+    # `Authorization: Bearer xxx` —— 保留方案名，只打码凭证部分，
+    # 这样读留存时还能一眼看出用的是什么认证方式。
+    if name.lower() == "authorization" and " " in value:
+        scheme, _, credential = value.partition(" ")
+        return f"{scheme} {_mask(credential)}"
+    return _mask(value)
+
 
 class ApiResponse:
     """对 `requests.Response` 的轻量包装，额外带上耗时和请求快照。"""
@@ -58,18 +87,39 @@ class ApiResponse:
             ) from exc
 
     def save(self, tag: str) -> Path:
-        """把请求和响应原文落盘到 report/artifacts/<tag>.txt。失败留存用。"""
+        """把请求和响应原文落盘到 report/artifacts/<tag>.txt。失败留存用。
+
+        ★ 这个方法在写完之后【一次都没被调用过】，直到我把它接进
+          失败自动留存才第一次真正跑起来 —— 然后立刻崩了：
+              TypeError: sequence item 9: expected str instance, bytes found
+
+          原因：`requests` 在用 `json=` 发请求时，把请求体存成 **bytes**，
+          而 `"\\n".join(...)` 要求全是 str。
+          ★ 教训：**没被触发过的代码 = 没写过的代码。**
+            它看着对、语法也对、`py_compile` 也过 —— 但一跑就崩。
+        """
         ARTIFACT_DIR.mkdir(parents=True, exist_ok=True)
         path = ARTIFACT_DIR / f"{tag}.txt"
+
+        # 请求体可能是 bytes / str / None，统一转成可读文本
+        body = self.request_dump.get("body")
+        if isinstance(body, (bytes, bytearray)):
+            try:
+                body = body.decode("utf-8")
+            except UnicodeDecodeError:
+                body = repr(body)          # 二进制体就存 repr，别让它把整个留存搞崩
+        elif body is None:
+            body = ""
+
         lines = [
             "=========== REQUEST ===========",
             f"{self.request_dump['method']} {self.request_dump['url']}",
-            *[f"{k}: {v}" for k, v in self.request_dump["headers"].items()],
+            *[f"{k}: {_mask_header(k, str(v))}" for k, v in self.request_dump["headers"].items()],
             "",
-            self.request_dump["body"] or "",
+            body,
             "=========== RESPONSE ==========",
             f"HTTP {self.status_code}  ({self.elapsed_ms:.1f} ms, {self.body_bytes} bytes)",
-            *[f"{k}: {v}" for k, v in self.headers.items()],
+            *[f"{k}: {_mask_header(k, str(v))}" for k, v in self.headers.items()],
             "",
             self.text,
         ]
@@ -88,6 +138,9 @@ class HttpClient:
         self.timeout = timeout
         self.log = logger
         self.session = requests.Session()
+        # ★ 最近一次响应。用例失败时，conftest 里的 hook 会把它的原文落盘 ——
+        #   这就是「失败自动留存」的落点。没有这个引用，save() 永远没机会被调用。
+        self.last_response: "ApiResponse | None" = None
 
     # ── 认证 ────────────────────────────────────────────────────────
     def set_token(self, token: str) -> None:
@@ -118,6 +171,7 @@ class HttpClient:
             "body": raw.request.body,
         }
         resp = ApiResponse(raw, elapsed_ms, request_dump)
+        self.last_response = resp          # ★ 供失败留存使用（见 conftest.py 的 hook）
 
         if self.log:
             self.log.info(

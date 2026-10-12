@@ -104,3 +104,51 @@ def anonymous_client(cfg):
     c = HttpClient(cfg["base_url"], cfg["timeout"])
     yield c
     c.close()
+
+
+# ═══════════════════════════════════════════════════════════════════
+# 失败自动留存 —— pytest 钩子
+# ═══════════════════════════════════════════════════════════════════
+#
+# ★ 为什么需要这个钩子：
+#   光是写一个 `ApiResponse.save()` 方法**不算实现了"失败留存"** ——
+#   它必须真的在【用例失败时】被调用，才有意义。
+#
+#   这个方法的教训是我踩出来的：它写完之后一次都没被调用过，
+#   直到我把下面这个 hook 接上，它才第一次真正运行 —— 然后立刻崩了
+#   （请求体是 bytes，`"\n".join()` 要求 str）。
+#
+#   ★ 所以「功能有没有实现」的判据不是「方法存不存在」，
+#     而是「**它有没有在真实路径上被执行过**」。
+
+@pytest.hookimpl(hookwrapper=True)
+def pytest_runtest_makereport(item, call):
+    """用例在 call 阶段失败时，把最近一次请求/响应原文落盘。"""
+    outcome = yield
+    report = outcome.get_result()
+
+    if report.when != "call" or not report.failed:
+        return
+
+    # 从用例拿到底层 client：直接要 client，或者从 account_api 里挖
+    client = item.funcargs.get("client")
+    if client is None:
+        api = item.funcargs.get("account_api")
+        client = getattr(api, "client", None)
+
+    resp = getattr(client, "last_response", None)
+    if resp is None:
+        return
+
+    # 用例 id 里有 :: / [ ] 这些字符，做文件名要洗掉
+    safe = item.nodeid
+    for ch in ":/\\[]<>|\" ":
+        safe = safe.replace(ch, "_")
+
+    try:
+        path = resp.save(f"FAILED_{safe}")
+        report.sections.append(("失败现场", f"请求/响应原文已留存 → {path}"))
+    except Exception as exc:          # noqa: BLE001
+        # ★ 留存失败不能把原始失败盖掉 —— 它只是辅助信息。
+        #   这里刻意只追加一节说明，不 raise。
+        report.sections.append(("失败现场", f"留存失败：{exc!r}"))
