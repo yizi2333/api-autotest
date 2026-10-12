@@ -219,8 +219,24 @@ if (Test-Path "sut/app.py") {
 Write-Host ""
 $script:Results | Format-Table -AutoSize -Wrap -Property 检查, 结果, 说明
 
-$fail = ($script:Results | Where-Object { $_.结果 -eq "❌" }).Count
-$warn = ($script:Results | Where-Object { $_.结果 -eq "⚠️" }).Count
+# ★★ 必须用 @() 把结果强制成数组 —— 这是一个 PowerShell 5.1 的隐蔽陷阱：
+#
+#   管道【只返回一个对象】时，`.Count` 不是 1，而是 $null。
+#      ($x | Where-Object {...}).Count        # 匹配 1 项 → $null
+#      @($x | Where-Object {...}).Count       # 匹配 1 项 → 1   ✅
+#
+#   后果极其阴险：**只有一处严重问题时，这个脚本判定为"没有错误"并放行；
+#   有两处以上才会拦。**
+#
+#   我是怎么发现的：反向测试时人为制造了一处契约不一致，
+#   脚本正确地显示了 ❌ 那一行，却仍然打印「🟡 3 项建议处理」并 exit 0。
+#   —— 报告和结论自相矛盾，但**没有任何报错**。
+#
+#   ★ 这就是「静默失效」：不崩溃、不提示，只在最关键的情况下给你一个反的结论。
+#     单数漏判、复数正常 —— 这种 bug 用「跑一遍看看」是测不出来的，
+#     必须**专门构造"只有一项"的输入**。
+$fail = @($script:Results | Where-Object { $_.结果 -eq "❌" }).Count
+$warn = @($script:Results | Where-Object { $_.结果 -eq "⚠️" }).Count
 
 Write-Host ""
 if ($fail -gt 0) {
