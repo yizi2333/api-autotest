@@ -1,0 +1,89 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 980 700" width="980" height="700" font-family="'Microsoft YaHei','PingFang SC','Segoe UI',sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#546e7a"/>
+    </marker>
+    <marker id="arrowDash" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#e91e63"/>
+    </marker>
+  </defs>
+
+  <rect width="980" height="700" fill="#ffffff"/>
+
+  <!-- 标题 -->
+  <text x="40" y="48" font-size="26" font-weight="bold" fill="#263238">api-autotest · 分层架构与依赖方向</text>
+  <text x="40" y="76" font-size="14" fill="#607d8b">依赖单向：testcases → api → common（反向依赖会破坏分层）</text>
+
+  <!-- 列标题 -->
+  <text x="295" y="112" font-size="14" font-weight="bold" fill="#455a64" text-anchor="middle">被测链路（依赖方向 ↓）</text>
+  <text x="785" y="112" font-size="14" font-weight="bold" fill="#455a64" text-anchor="middle">支撑与产出</text>
+
+  <!-- ═══ 左列：用例层 ═══ -->
+  <rect x="60" y="126" width="470" height="112" rx="10" fill="#e3f2fd" stroke="#1e88e5" stroke-width="2"/>
+  <text x="84" y="156" font-size="17" font-weight="bold" fill="#0d47a1">用例层&#160;&#160;testcases/</text>
+  <text x="84" y="184" font-size="13" fill="#37474f">test_smoke.py&#160;&#160;·&#160;&#160;test_account.py&#160;&#160;·&#160;&#160;test_assertion_layer.py</text>
+  <text x="84" y="210" font-size="13" fill="#546e7a">只写「业务上要验证什么」，不碰 HTTP 细节</text>
+
+  <!-- 箭头 1 -->
+  <line x1="295" y1="238" x2="295" y2="264" stroke="#546e7a" stroke-width="2" marker-end="url(#arrow)"/>
+  <text x="312" y="256" font-size="12" fill="#546e7a">调用</text>
+
+  <!-- ═══ 左列：接口层 ═══ -->
+  <rect x="60" y="266" width="470" height="112" rx="10" fill="#e8f5e9" stroke="#43a047" stroke-width="2"/>
+  <text x="84" y="296" font-size="17" font-weight="bold" fill="#1b5e20">接口层&#160;&#160;api/</text>
+  <text x="84" y="324" font-size="13" fill="#37474f">account_api.py</text>
+  <text x="84" y="350" font-size="13" fill="#546e7a">把 URL 包装成有名字的方法，路径变了只改这一层</text>
+
+  <!-- 箭头 2 -->
+  <line x1="295" y1="378" x2="295" y2="404" stroke="#546e7a" stroke-width="2" marker-end="url(#arrow)"/>
+  <text x="312" y="396" font-size="12" fill="#546e7a">调用</text>
+
+  <!-- ═══ 左列：基础层 ═══ -->
+  <rect x="60" y="406" width="470" height="112" rx="10" fill="#fff3e0" stroke="#fb8c00" stroke-width="2"/>
+  <text x="84" y="436" font-size="17" font-weight="bold" fill="#e65100">基础层&#160;&#160;common/</text>
+  <text x="84" y="462" font-size="13" fill="#37474f">config.py&#160;&#160;多环境配置（base_url）&#160;&#160;·&#160;&#160;logger.py</text>
+  <text x="84" y="484" font-size="13" fill="#37474f">http_client.py&#160;&#160;Session 复用 / 失败留存 / 参数关联</text>
+  <text x="84" y="506" font-size="13" fill="#37474f">assertions.py&#160;&#160;统一断言，失败带请求响应原文</text>
+
+  <!-- 箭头 3 -->
+  <line x1="295" y1="518" x2="295" y2="544" stroke="#546e7a" stroke-width="2" marker-end="url(#arrow)"/>
+  <text x="312" y="536" font-size="12" fill="#546e7a">HTTP&#160;127.0.0.1:8000</text>
+
+  <!-- ═══ 左列：被测系统 ═══ -->
+  <rect x="60" y="546" width="470" height="112" rx="10" fill="#f3e5f5" stroke="#8e24aa" stroke-width="2"/>
+  <text x="84" y="576" font-size="17" font-weight="bold" fill="#4a148c">被测系统&#160;&#160;sut/app.py</text>
+  <text x="84" y="604" font-size="13" fill="#37474f">FastAPI：账号 + 订单（自建 → 可改、可埋 bug、可演示）</text>
+  <text x="84" y="630" font-size="13" fill="#546e7a">接口文档自动生成：/docs</text>
+
+  <!-- ═══ 右列 1：数据层 ═══ -->
+  <rect x="580" y="126" width="360" height="112" rx="10" fill="#fce4ec" stroke="#d81b60" stroke-width="2"/>
+  <text x="604" y="156" font-size="17" font-weight="bold" fill="#880e4f">数据层&#160;&#160;data/cases.yaml</text>
+  <text x="604" y="184" font-size="13" fill="#37474f">用例数据与代码分离</text>
+  <text x="604" y="208" font-size="13" fill="#546e7a">加场景只改 YAML，代码一行不动</text>
+
+  <!-- 虚线箭头：数据层 → 用例层 -->
+  <line x1="578" y1="182" x2="534" y2="182" stroke="#d81b60" stroke-width="2" stroke-dasharray="6 4" marker-end="url(#arrowDash)"/>
+  <text x="556" y="174" font-size="11" fill="#d81b60" text-anchor="end">数据驱动</text>
+
+  <!-- ═══ 右列 2：产出 ═══ -->
+  <rect x="580" y="406" width="360" height="112" rx="10" fill="#eceff1" stroke="#607d8b" stroke-width="2"/>
+  <text x="604" y="436" font-size="17" font-weight="bold" fill="#263238">产出&#160;&#160;report/</text>
+  <text x="604" y="462" font-size="13" fill="#37474f">report.html（HTML 报告）&#160;&#160;·&#160;&#160;allure-results/</text>
+  <text x="604" y="484" font-size="13" fill="#37474f">logs/autotest.log&#160;&#160;·&#160;&#160;artifacts/（失败现场）</text>
+
+  <!-- 虚线箭头：基础层 → 产出 -->
+  <line x1="534" y1="462" x2="576" y2="462" stroke="#607d8b" stroke-width="2" stroke-dasharray="6 4" marker-end="url(#arrow)"/>
+
+  <!-- ═══ 右列 3：CI ═══ -->
+  <rect x="580" y="266" width="360" height="112" rx="10" fill="#e0f7fa" stroke="#00838f" stroke-width="2"/>
+  <text x="604" y="296" font-size="17" font-weight="bold" fill="#006064">CI&#160;&#160;.github/workflows/autotest.yml</text>
+  <text x="604" y="322" font-size="13" fill="#37474f">push / PR / 每天定时 自动触发</text>
+  <text x="604" y="344" font-size="13" fill="#546e7a">起服务 → 轮询 /health → 跑回归 → 归档报告</text>
+
+  <!-- ═══ 右列 4：工具链 ═══ -->
+  <rect x="580" y="546" width="360" height="112" rx="10" fill="#f9fbe7" stroke="#9e9d24" stroke-width="2"/>
+  <text x="604" y="576" font-size="17" font-weight="bold" fill="#827717">其他工具链</text>
+  <text x="604" y="604" font-size="13" fill="#37474f">Postman（newman 无头跑）·&#160;JMeter 压测</text>
+  <text x="604" y="630" font-size="13" fill="#546e7a">scripts/ci_local.ps1&#160;&#160;本地模拟 CI</text>
+</svg>

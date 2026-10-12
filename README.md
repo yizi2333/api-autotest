@@ -42,18 +42,7 @@ pytest testcases/test_account.py -v
 
 ## 架构
 
-<!-- ★ 待填（D8）：把下面这个 ASCII 图改成**你自己画的**，并说明每层职责。
-     面试官一定会让你现场画这个图。 -->
-
-```
-testcases/          用例层：只写"业务上要验证什么"
-    ↓
-api/                接口层：把 URL 包装成有名字的方法
-    ↓
-common/             基础层：配置 / 日志 / HTTP 客户端 / 数据加载
-    ↑
-data/cases.yaml     数据层：用例数据，和代码分离
-```
+![分层架构与依赖方向](docs/architecture.svg)
 
 依赖方向是**单向**的：`testcases → api → common`。反向依赖会破坏分层。
 
@@ -62,11 +51,17 @@ data/cases.yaml     数据层：用例数据，和代码分离
 | 数据层 | `data/cases.yaml` | 用例数据。加场景只改这里 |
 | 基础层 | `common/config.py` | 多环境配置（`base_url` 等） |
 | | `common/http_client.py` | 请求封装、Session 复用、失败留存 |
+| | `common/assertions.py` | 统一断言，失败信息带请求/响应原文 |
 | | `common/logger.py` | 日志 |
 | | `common/dataprovider.py` | YAML 加载 + 占位符替换 |
 | 接口层 | `api/account_api.py` | 账号接口定义 |
 | 用例层 | `testcases/` | 测试用例与断言 |
 | 被测系统 | `sut/app.py` | FastAPI 实现（账号 + 订单） |
+
+<!-- ★ 待填（D8）：上面这张图是打样。
+     面试官一定会让你**现场画**这个图 —— 所以你要能不看图默画出来，
+     并且每画一层就说清它的职责、和上下层谁调用谁。
+     如果你后面调整了分层（比如拆出 service 层），记得同步更新 docs/architecture.svg。 -->
 
 ---
 
