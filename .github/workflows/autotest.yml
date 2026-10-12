@@ -1,0 +1,54 @@
+name: API Autotest
+
+# ★ 触发方式（这就是「CI/CD 里的 CI」）
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    # 每天 UTC 18:00（北京时间 02:00）跑一次全量回归
+    - cron: '0 18 * * *'
+  workflow_dispatch:        # 也允许在网页上手动点一下触发
+
+jobs:
+  autotest:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 拉代码
+        uses: actions/checkout@v4
+
+      - name: 装 Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - name: 装依赖
+        run: pip install -r requirements.txt
+
+      - name: 起被测系统
+        run: |
+          mkdir -p report
+          uvicorn sut.app:app --port 8000 &
+          # ★ 不要 sleep 固定秒数就开跑 —— 服务可能还没起来。
+          #   这里轮询 /health，就绪了才继续（这就是「健康检查」）。
+          for i in $(seq 1 30); do
+            if curl -sf http://127.0.0.1:8000/health > /dev/null; then
+              echo "被测系统已就绪"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "被测系统 30 秒内未就绪"; exit 1
+
+      - name: 跑接口自动化
+        run: pytest
+
+      - name: 上传测试报告
+        if: always()          # ★ 用例挂了也要传报告，否则没法定位
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-report
+          path: report/
+          retention-days: 14

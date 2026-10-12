@@ -1,0 +1,95 @@
+# ═══════════════════════════════════════════════════════════════════
+# 接口测试用例数据
+#
+# ★ 为什么数据要放这里，而不是写在代码里：
+#   加一个场景 = 加 5 行 YAML，测试代码一行不用改。
+#
+# ★ {suffix} 会在运行时替换成随机后缀，保证用例【可重复执行】。
+#   不加它的话，第二次跑就会因为「用户名已存在」而红。
+# ═══════════════════════════════════════════════════════════════════
+
+# ── 注册接口：参数边界与校验 ────────────────────────────────────────
+# 被测系统里 username 限制 3–32 位，password 限制 6–64 位
+# ★ 边界值法的思路：每个边界都测「界内 / 界上 / 界外」三个点
+register_validation:
+  # ★ 为什么下面这几条【不能】用 {suffix}：
+  #   边界值用例要的是「长度恰好是 N」。加个 8 位随机后缀之后，
+  #   "ab{suffix}" 实际长度变成 10 —— 根本测不到「低于下界」，
+  #   用例会假绿/假红，而且看起来还挺合理。这是打样时真踩到的坑。
+  #   重复执行的问题改用 conftest 里的 clean_db fixture 解决（每次运行前清库）。
+
+  - case_id: REG-001
+    title: 用户名 2 位（低于下界 3）应被拒绝
+    username: "ab"
+    password: "Pw_123456"
+    expect_status: 422
+
+  - case_id: REG-002
+    title: 用户名 3 位（恰好下界）应通过
+    username: "abc"
+    password: "Pw_123456"
+    expect_status: 201
+
+  - case_id: REG-003
+    title: 密码 5 位（低于下界 6）应被拒绝
+    username: "qa003"
+    password: "Pw_12"
+    expect_status: 422
+
+  - case_id: REG-004
+    title: 密码 6 位（恰好下界）应通过
+    username: "qa004"
+    password: "Pw_123"
+    expect_status: 201
+
+  # ── TODO(D5)：你来补 ─────────────────────────────────────────────
+  # 1. 用户名 32 位（恰好上界）→ 201
+  # 2. 用户名 33 位（超出上界）→ 422
+  # 3. password 字段整个缺失 → 422
+  # 4. username 传数字类型（如 12345）→ 422
+  # 5. 用户名含特殊字符（如 "qa test"）→ ？
+  #    ★ 判断格：这条的期望结果要你自己定。先想「产品上应该允许吗」，
+  #      再去看被测系统实际怎么做的。如果和你的预期不一致 ——
+  #      那可能就是一个真 bug，**记下来，这就是你的测试产出**。
+
+# ── 登录接口：认证异常场景 ──────────────────────────────────────────
+login_negative:
+  - case_id: LOGIN-001
+    title: 用户名不存在
+    username: "nobody_xyz"
+    password: "Pw_123456"
+    expect_status: 401
+
+  - case_id: LOGIN-002
+    title: 密码错误
+    username: "{valid_user}"
+    password: "WrongPassword"
+    expect_status: 401
+
+  - case_id: LOGIN-003
+    title: 用户名为空字符串（参数非法，不是认证失败）
+    username: ""
+    password: "Pw_123456"
+    expect_status: 422
+
+  # ── TODO(D5)：你来补 ─────────────────────────────────────────────
+  # 1. 密码字段缺失 → ？
+  # 2. 用户名前后带空格（"  alice  "）→ ？ ★ 这是个经典坑：服务端该不该 trim？
+  # 3. 用户名大小写不同（"Alice" vs "alice"）→ ？是不是同一个用户？
+  #    ★ 判断格：这三条的期望值都要你先想清楚「应该是多少」，
+  #      再去测实际值。有差异就是发现的问题 —— 面试时讲这个比背用例设计方法强十倍。
+
+# ── 订单接口（TODO D5：等你 D2 写完订单模块后自己建这一组）──────────
+# order_negative:
+#   - case_id: ORDER-001
+#     title: 未登录创建订单
+#     expect_status: 401
+#   - case_id: ORDER-002
+#     title: 金额为 0
+#     expect_status: 422
+#   - case_id: ORDER-003
+#     title: 金额超过余额
+#     expect_status: 400
+#   - case_id: ORDER-004
+#     title: 查询【别人的】订单（水平越权）
+#     expect_status: 403
