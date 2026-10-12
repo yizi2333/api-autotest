@@ -25,14 +25,59 @@ $env:PYTHONUTF8 = "1"
 $Root = Split-Path -Parent $PSScriptRoot
 Set-Location $Root
 
-# 选 Python：优先用项目/环境里的 venv，都没有就用当前 python
+# 选 Python：按优先级找一个可用的解释器
+#   ★ 不要写死绝对路径 —— 别人 clone 下来路径不一样，
+#     写死的话脚本要么报错，要么更糟：静默用了另一个环境的解释器
+$pathPython = $null
+$cmd = Get-Command python -ErrorAction SilentlyContinue | Select-Object -First 1
+if ($cmd) { $pathPython = $cmd.Source }
+
 $Candidates = @(
-    "$Root\.venv\Scripts\python.exe",
-    "D:\Code\security-lab\.venv\Scripts\python.exe"
-)
-$Py = $Candidates | Where-Object { Test-Path $_ } | Select-Object -First 1
-if (-not $Py) { $Py = "python" }
+    $env:AUTOTEST_PYTHON,                 # 1) 显式指定（最高优先级，也方便 CI 覆盖）
+    "$Root\.venv\Scripts\python.exe",     # 2) 项目自带 venv（Windows 布局）
+    "$Root\.venv\bin\python",             # 3) 项目自带 venv（Linux / macOS 布局）
+    "$Root\venv\Scripts\python.exe",      # 4) 另一种常见目录名
+    $pathPython                           # 5) PATH 里的 python（最后兜底）
+) | Where-Object { $_ -and (Test-Path $_) }
+
+$Py = $Candidates | Select-Object -First 1
+if (-not $Py) {
+    Write-Host "[ci] 找不到可用的 Python。" -ForegroundColor Red
+    Write-Host "[ci] 请先建环境：python -m venv .venv 然后 .venv\Scripts\pip install -r requirements.txt" -ForegroundColor Yellow
+    Write-Host "[ci] 或用环境变量指定：AUTOTEST_PYTHON=C:\path\to\python.exe" -ForegroundColor Yellow
+    exit 1
+}
 Write-Host "[ci] Python: $Py" -ForegroundColor Cyan
+
+# ── 校验这个解释器真的有项目依赖 ────────────────────────────────────
+#   ★ 为什么必须校验：
+#     能"找到一个 python"不等于"找到对的 python"。
+#     如果它没装 uvicorn/pytest，脚本会先花 30 秒等健康检查，
+#     然后报一句"服务未就绪" —— 你会去查服务，而真正的问题是解释器选错了。
+#     **报错信息指错方向，是最贵的调试成本。**
+#
+#   ★★ 这里有个 PowerShell 5.1 的坑（我在这行代码上真踩了一次）：
+#     脚本开头设了 `$ErrorActionPreference = "Stop"`。
+#     在这个模式下，**原生命令往 stderr 写任何东西都会被当成终止错误**，
+#     直接中断脚本 —— 于是这段"友好报错"代码自己先死了，
+#     用户看到的是一个 NativeCommandError 堆栈，而不是我写的提示。
+#     所以必须在调用前后把 ErrorActionPreference 临时切回 Continue。
+$prevEAP = $ErrorActionPreference
+$ErrorActionPreference = "Continue"
+$depCheck = & $Py -c "import uvicorn, pytest, fastapi, requests, yaml, jsonschema" 2>&1
+$depExit = $LASTEXITCODE
+$ErrorActionPreference = $prevEAP
+
+if ($depExit -ne 0) {
+    Write-Host "[ci] 这个 Python 缺少项目依赖：" -ForegroundColor Red
+    Write-Host "     $Py" -ForegroundColor Red
+    Write-Host "     $($depCheck | Select-Object -Last 1)" -ForegroundColor DarkGray
+    Write-Host "[ci] 请在该项目下建立独立环境：" -ForegroundColor Yellow
+    Write-Host "     python -m venv .venv" -ForegroundColor Yellow
+    Write-Host "     .venv\Scripts\pip install -r requirements.txt" -ForegroundColor Yellow
+    Write-Host "[ci] 或指定已有环境：`$env:AUTOTEST_PYTHON='<python.exe 路径>'" -ForegroundColor Yellow
+    exit 1
+}
 
 # ── 1) 起被测系统 ───────────────────────────────────────────────────
 Write-Host "[ci] 启动被测系统（端口 $Port）..." -ForegroundColor Cyan
