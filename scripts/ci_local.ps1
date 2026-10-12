@@ -44,7 +44,7 @@ $Py = $Candidates | Select-Object -First 1
 if (-not $Py) {
     Write-Host "[ci] 找不到可用的 Python。" -ForegroundColor Red
     Write-Host "[ci] 请先建环境：python -m venv .venv 然后 .venv\Scripts\pip install -r requirements.txt" -ForegroundColor Yellow
-    Write-Host "[ci] 或用环境变量指定：AUTOTEST_PYTHON=C:\path\to\python.exe" -ForegroundColor Yellow
+    Write-Host "[ci] 或用环境变量指定：AUTOTEST_PYTHON=<python.exe 的完整路径>" -ForegroundColor Yellow
     exit 1
 }
 Write-Host "[ci] Python: $Py" -ForegroundColor Cyan
@@ -81,9 +81,27 @@ if ($depExit -ne 0) {
 
 # ── 1) 起被测系统 ───────────────────────────────────────────────────
 Write-Host "[ci] 启动被测系统（端口 $Port）..." -ForegroundColor Cyan
-$proc = Start-Process -FilePath $Py `
-    -ArgumentList "-m", "uvicorn", "sut.app:app", "--port", "$Port" `
-    -WorkingDirectory $Root -PassThru -WindowStyle Hidden
+
+# ★ 为什么不用 Start-Process：
+#   Windows PowerShell 5.1 的 Start-Process 会先把环境变量装进一个
+#   【大小写不敏感】的字典。而有些环境（例如带代理注入的终端）会同时存在
+#   `NO_PROXY` 和 `no_proxy` —— 两个键一撞就抛「已添加项：NO_PROXY」，
+#   进程根本起不来，报错还完全指不到真正的原因。
+#   System.Diagnostics.Process 不做这层转换，稳定得多。
+$psi = New-Object System.Diagnostics.ProcessStartInfo
+$psi.FileName = $Py
+$psi.Arguments = "-m uvicorn sut.app:app --port $Port"
+$psi.WorkingDirectory = $Root
+$psi.UseShellExecute = $false
+$psi.CreateNoWindow = $true
+$proc = [System.Diagnostics.Process]::Start($psi)
+
+function Stop-SutProcess {
+    param($Proc)
+    if ($Proc -and -not $Proc.HasExited) {
+        try { $Proc.Kill() } catch { }
+    }
+}
 
 $ready = $false
 for ($i = 1; $i -le 30; $i++) {
@@ -95,7 +113,7 @@ for ($i = 1; $i -le 30; $i++) {
 
 if (-not $ready) {
     Write-Host "[ci] 被测系统 30 秒内未就绪 —— 这就是 CI 里最常见的失败原因" -ForegroundColor Red
-    Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
+    Stop-SutProcess $proc
     exit 1
 }
 Write-Host "[ci] 被测系统已就绪（等待 $i 秒）" -ForegroundColor Green
@@ -113,7 +131,7 @@ finally {
     # ── 3) 收尾 ─────────────────────────────────────────────────────
     # ★ 一定要放在 finally 里：测试挂了也要把服务关掉，
     #   否则下次跑会因为端口被占用而失败（然后你以为是代码问题）。
-    Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
+    Stop-SutProcess $proc
     Write-Host "[ci] 被测系统已停止" -ForegroundColor Cyan
 }
 
