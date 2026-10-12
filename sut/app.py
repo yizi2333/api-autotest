@@ -20,9 +20,16 @@ POST /api/account/login          → 200 {"token","username"}
 GET  /api/account/profile        → 200 {"username","balance"}     需要 token
                                    401 未认证 / token 无效
 POST /api/order/create           → 201 {"order_id","item","amount","status"}  需要 token
-POST /api/order/{id}             → TODO(D2) 由你实现
+GET  /api/order/{order_id}       → TODO(D2) 由你实现（★ 是 GET 不是 POST —— 查订单是读操作）
 GET  /api/order/list             → TODO(D2) 由你实现
 """
+
+# ★ 上面这一栏是【接口契约】，下面文件末尾那一栏是【实现要求】。
+#   两处必须一致 —— 之前这里把 `GET /api/order/{order_id}` 误写成了 `POST`，
+#   而底部 TODO 写的是 GET。照着顶部实现就会写成一个"用 POST 查订单"的接口，
+#   语义是错的（POST 不幂等、不该用来读）。
+#   ★ 教训：**同一件事写在两个地方，就一定会有一处先烂。**
+#     要么只写一处，要么加一个检查。这里的检查就是 scripts/preflight_check.ps1。
 
 import secrets
 import sqlite3

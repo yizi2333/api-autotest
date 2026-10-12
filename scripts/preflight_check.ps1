@@ -181,6 +181,40 @@ if ($py) {
     WARN "用例数量" "找不到 python"
 }
 
+# ── 8) 接口契约一致性 ───────────────────────────────────────────────
+#   ★ 为什么要有这一条：
+#     `sut/app.py` 顶部有一段【接口契约】，文件末尾的 TODO 里又写了一遍【实现要求】。
+#     同一件事写在两个地方 —— 就一定会有一处先烂。
+#     实际情况：顶部写着 `POST /api/order/{id}`，底部写的是 `GET /api/order/{order_id}`。
+#     照着顶部实现，就会写出一个「用 POST 查订单」的接口，语义都是错的。
+#
+#   ★ 这条检查只做一件事：**同一个路径，两处写的 HTTP 方法必须一样。**
+if (Test-Path "sut/app.py") {
+    $src = Get-Content "sut/app.py" -Encoding UTF8
+
+    $contract = @{}   # 顶部契约：行首就是方法名
+    $impl     = @{}   # 底部 TODO：以 # 开头，可能带 ①②③ 序号
+
+    foreach ($ln in $src) {
+        if ($ln -match '^(GET|POST|PUT|DELETE)\s+(/\S+)') {
+            $contract[$Matches[2]] = $Matches[1]
+        }
+        if ($ln -match '^#\s*[①②③④⑤]?\s*(GET|POST|PUT|DELETE)\s+(/\S+)') {
+            $impl[$Matches[2]] = $Matches[1]
+        }
+    }
+
+    $mismatch = @()
+    foreach ($path in $impl.Keys) {
+        if ($contract.ContainsKey($path) -and $contract[$path] -ne $impl[$path]) {
+            $mismatch += "$path  顶部=$($contract[$path])  底部=$($impl[$path])"
+        }
+    }
+
+    if ($mismatch) { FAIL "接口契约一致" ($mismatch -join " ｜ ") }
+    else           { OK   "接口契约一致" "$($impl.Count) 个待实现接口，方法与顶部契约一致" }
+}
+
 # ── 汇总 ────────────────────────────────────────────────────────────
 Write-Host ""
 $script:Results | Format-Table -AutoSize -Wrap -Property 检查, 结果, 说明
