@@ -1,0 +1,10 @@
+# ★ 统一换行符：仓库里存 LF，检出时也保持 LF。
+#   不加这个，Windows 上写、Linux CI 上跑，git 会提示 "LF will be replaced by CRLF"，
+#   以后还会出现"整个文件都变了"的假 diff（其实一行没改）。
+* text=auto eol=lf
+
+# 二进制文件不要做换行符转换
+*.png binary
+*.jpg binary
+*.ico binary
+*.db  binary
