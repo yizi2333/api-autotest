@@ -219,11 +219,17 @@ if (Test-Path "sut/app.py") {
 Write-Host ""
 $script:Results | Format-Table -AutoSize -Wrap -Property 检查, 结果, 说明
 
-# ★★ 必须用 @() 把结果强制成数组 —— 这是一个 PowerShell 5.1 的隐蔽陷阱：
+# ★★ 必须用 @() 把结果强制成数组 —— 这是一个 PowerShell 5.1 的隐蔽陷阱。
 #
-#   管道【只返回一个对象】时，`.Count` 不是 1，而是 $null。
-#      ($x | Where-Object {...}).Count        # 匹配 1 项 → $null
-#      @($x | Where-Object {...}).Count       # 匹配 1 项 → 1   ✅
+#   规则（实测确认 —— 注意它【只对 PSCustomObject 生效】）：
+#     ($x | Where-Object {...}).Count        # 匹配 1 项且类型是 PSCustomObject → $null
+#     @($x | Where-Object {...}).Count       # → 1                                ✅
+#
+#   实测对照（管道返回【1 个】对象时）：
+#     PSCustomObject                     → $null   ⚠️ 危险
+#     string / int / FileInfo / MatchInfo / Hashtable → 1   ✅ 安全
+#
+#   之所以会踩到，正是因为本脚本每个检查项都是 [pscustomobject]@{...}。
 #
 #   后果极其阴险：**只有一处严重问题时，这个脚本判定为"没有错误"并放行；
 #   有两处以上才会拦。**
