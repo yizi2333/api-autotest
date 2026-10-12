@@ -12,6 +12,11 @@ report/
 *.db
 *.sqlite3
 
+# 压测产物（计划和说明要提交，跑出来的结果不要）
+perf/results.jtl
+perf/report/
+perf/*.jtl
+
 # 本地配置与密钥（★ 永远不要提交）
 .env
 *.local.yml

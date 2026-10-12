@@ -1,0 +1,223 @@
+{
+  "info": {
+    "_postman_id": "b7c1e2a4-3f5d-4a91-9c02-7e6d8f1a2b3c",
+    "name": "api-autotest SUT",
+    "description": "被测系统（FastAPI 账号 + 订单）的 Postman 集合。\n\n★ 这个集合的价值不只是「能发请求」，而是演示了两件 Postman 的核心用法：\n  1. **参数关联**：登录响应里的 token 自动提取成变量，后面所有请求自动带上\n  2. **断言**：每个请求带 pm.test 断言，所以它能当「轻量回归」用（配合 newman 进 CI）\n\n跑法：\n  newman run postman/api-autotest.postman_collection.json -e postman/local.postman_environment.json",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://127.0.0.1:8000"
+    }
+  ],
+  "item": [
+    {
+      "name": "1. 健康检查",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"状态码 200\", function () {",
+              "    pm.response.to.have.status(200);",
+              "});",
+              "",
+              "pm.test(\"返回体 status=ok\", function () {",
+              "    pm.expect(pm.response.json().status).to.eql(\"ok\");",
+              "});",
+              "",
+              "pm.test(\"响应时间 < 2000ms\", function () {",
+              "    pm.expect(pm.response.responseTime).to.be.below(2000);",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/health",
+          "host": ["{{baseUrl}}"],
+          "path": ["health"]
+        }
+      }
+    },
+    {
+      "name": "2. 注册账号（用户名动态生成，保证可重复执行）",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "// ★ 断言：不能只看状态码，还要看返回的数据对不对",
+              "pm.test(\"状态码 201\", function () {",
+              "    pm.response.to.have.status(201);",
+              "});",
+              "",
+              "pm.test(\"返回的 username 和请求一致\", function () {",
+              "    pm.expect(pm.response.json().username).to.eql(pm.variables.get(\"username\"));",
+              "});",
+              "",
+              "pm.test(\"返回体包含 id\", function () {",
+              "    pm.expect(pm.response.json()).to.have.property(\"id\");",
+              "});",
+              "",
+              "// ★ 参数关联：本次生成的用户名存下来，给登录接口用",
+              "pm.environment.set(\"username\", pm.variables.get(\"username\"));"
+            ]
+          }
+        },
+        {
+          "listen": "prerequest",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "// 每次跑都生成一个新用户名 —— 否则第二次跑会撞 409（用例不可重复执行）",
+              "pm.variables.set(\"username\", \"pm_\" + pm.variables.replaceIn(\"{{$randomAlphaNumeric}}\") + pm.variables.replaceIn(\"{{$randomAlphaNumeric}}\") + pm.variables.replaceIn(\"{{$randomAlphaNumeric}}\") + pm.variables.replaceIn(\"{{$randomAlphaNumeric}}\") + pm.variables.replaceIn(\"{{$randomAlphaNumeric}}\") + pm.variables.replaceIn(\"{{$randomAlphaNumeric}}\"));",
+              "pm.variables.set(\"password\", \"Pw_123456\");"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"username\": \"{{username}}\",\n  \"password\": \"{{password}}\"\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/account/register",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "account", "register"]
+        }
+      }
+    },
+    {
+      "name": "3. 登录 → 提取 token（参数关联）",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"状态码 200\", function () {",
+              "    pm.response.to.have.status(200);",
+              "});",
+              "",
+              "pm.test(\"返回 token 且非空\", function () {",
+              "    var body = pm.response.json();",
+              "    pm.expect(body).to.have.property(\"token\");",
+              "    pm.expect(body.token).to.be.a(\"string\").and.not.empty;",
+              "});",
+              "",
+              "// ★★ 这里是 Postman 最核心的用法：参数关联",
+              "//    登录拿到的 token 存进环境变量，后面所有请求靠 {{token}} 自动带上。",
+              "//    没有这一步，你每次都要手动复制粘贴 token —— 那就是手工测试了。",
+              "var body = pm.response.json();",
+              "pm.environment.set(\"token\", body.token);",
+              "console.log(\"token 已提取，长度 \" + body.token.length);"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"username\": \"{{username}}\",\n  \"password\": \"{{password}}\"\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/account/login",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "account", "login"]
+        }
+      }
+    },
+    {
+      "name": "4. 查询资料（带 token）",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"状态码 200\", function () {",
+              "    pm.response.to.have.status(200);",
+              "});",
+              "",
+              "pm.test(\"是当前登录用户的数据\", function () {",
+              "    pm.expect(pm.response.json().username).to.eql(pm.environment.get(\"username\"));",
+              "});",
+              "",
+              "pm.test(\"返回体含 balance 字段\", function () {",
+              "    pm.expect(pm.response.json()).to.have.property(\"balance\");",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{token}}"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/account/profile",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "account", "profile"]
+        }
+      }
+    },
+    {
+      "name": "5. 异常场景：不带 token 访问（应 401）",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "// ★ 这条是「异常场景」用例。它的价值在于：",
+              "//   如果服务端忘了加认证校验，它会返回 200 和别人的数据 ——",
+              "//   而正常流用例永远发现不了这个缺陷。",
+              "pm.test(\"状态码 401（认证必须生效）\", function () {",
+              "    pm.response.to.have.status(401);",
+              "});",
+              "",
+              "pm.test(\"未认证响应里不应泄漏用户数据\", function () {",
+              "    pm.expect(pm.response.text()).to.not.include(\"balance\");",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/api/account/profile",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "account", "profile"]
+        }
+      }
+    }
+  ]
+}

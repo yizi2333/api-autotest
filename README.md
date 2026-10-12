@@ -171,6 +171,39 @@ push / PR / 每天定时
 
 ---
 
+## 测试工具链
+
+同一套被测系统，用三种工具各跑一遍 —— 这不是重复劳动，而是回答「**什么时候该用哪个**」。
+
+| 工具 | 位置 | 用途 | 验证状态 |
+|---|---|---|---|
+| **pytest + requests** | `testcases/` | 主力回归：分层、数据驱动、可进 CI | ✅ 13 passed |
+| **Postman / newman** | `postman/` | 手工调试 + 接口文档；`newman` 可无头跑进 CI | ✅ 5 请求 / 13 断言全过 |
+| **JMeter** | `perf/` | 性能压测：并发、吞吐、P95 | ✅ 220 采样 / 108 req/s / 错误率 0% |
+
+**三者的分工（面试常问）：**
+
+- **Postman** —— 探索阶段。接口刚写好，你想快速试一发、看看返回长什么样。
+  它的强项是「所见即所得」，弱项是**用例一多就难维护**。
+- **pytest** —— 沉淀阶段。用例要长期跑、要进 CI、要能重构，就得用代码。
+- **JMeter** —— 专项阶段。你要回答的不是「功能对不对」，而是「**多少并发会崩**」。
+
+> ★ 三个工具都会，而且都能说出**取舍理由**，比只会一个但说不出为什么强得多。
+
+### 跑法
+
+```bash
+# Postman 集合（无头）
+newman run postman/api-autotest.postman_collection.json -e postman/local.postman_environment.json
+
+# JMeter 压测
+jmeter -n -t perf/api-load.jmx -l perf/results.jtl -e -o perf/report
+```
+
+详见 [`perf/README.md`](perf/README.md)。
+
+---
+
 ## 待办
 
 - [ ] 订单模块（`sut/app.py` 里的 TODO）
