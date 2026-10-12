@@ -1,5 +1,7 @@
 # api-autotest
 
+[![API Autotest](https://github.com/yizi2333/api-autotest/actions/workflows/autotest.yml/badge.svg)](https://github.com/yizi2333/api-autotest/actions/workflows/autotest.yml)
+
 > 基于 **pytest + requests** 的账号与订单系统接口自动化测试框架。
 > 被测系统也是本仓库自带的（FastAPI），clone 下来就能跑。
 
