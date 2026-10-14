@@ -188,12 +188,30 @@ def profile(user: str = Depends(current_user)):
 # ── TODO(D2)：订单模块，你来写 ──────────────────────────────────────
 #
 # 目标契约（照着这个实现，测试才有依据）：
-#
+@app.get("/api/order/{order_id}")
+def get_order(order_id: int, user: str = Depends(current_user)):
+    with closing(get_conn()) as conn:
+        row = conn.execute(
+            "SELECT id, username, item, amount, status FROM orders WHERE id = ?",
+            (order_id,),
+        ).fetchone()
+
+    if row is None:
+        raise HTTPException(status_code=404, detail="订单不存在")
+    if row["username"] != user:
+        raise HTTPException(status_code=403, detail="无权访问该订单")
+    return {
+        "order_id": row["id"],
+        "item": row["item"],
+        "amount": row["amount"],
+        "status": row["status"],
+    }
+
 # ① POST /api/order/create                       需要 token，status_code=201
 #    成功 → {"order_id": 1, "item": "...", "amount": 9.9, "status": "created"}
 #    ★ 要做的两件事：往 orders 表插一条；同时把 users.balance 扣掉 amount
 #    余额不足 → 400 {"detail": "余额不足"}
-#    （amount <= 0 已经由 OrderIn 的 Field(gt=0) 自动挡成 422，不用你写）
+#    （amount <= 0 已经由 OrderIn 的 Field(gt=0) 自动挡成 422，不用你写）·                                              
 #
 # ② GET /api/order/{order_id}                    需要 token
 #    是本人的订单 → 200 {"order_id","item","amount","status"}
