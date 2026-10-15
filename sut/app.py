@@ -184,6 +184,37 @@ def profile(user: str = Depends(current_user)):
         ).fetchone()
     return {"username": row["username"], "balance": row["balance"]}
 
+# ── ③ GET /api/order/list ──────────────────────────────────────────
+#
+# 契约：需要 token；只返回【当前用户】的订单；支持 ?status=created 过滤
+#
+@app.get("/api/order/list")
+def list_orders(status: Optional[str] = None, user: str = Depends(current_user)):
+    with closing(get_conn()) as conn:
+        if status:
+            rows = conn.execute(
+                "SELECT id, item, amount, status FROM orders WHERE username = ? AND status = ?",
+                (user, status),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT id, item, amount, status FROM orders WHERE username = ?",
+                (user,),
+            ).fetchall()
+        conn.commit()
+        
+    return [
+        {
+            "order_id": row["id"],
+            "item": row["item"],
+            "amount": row["amount"],
+            "status": row["status"],
+        }
+        for row in rows
+    ]
+
+
+
 
 # ── TODO(D2)：订单模块，你来写 ──────────────────────────────────────
 #
@@ -207,21 +238,67 @@ def get_order(order_id: int, user: str = Depends(current_user)):
         "status": row["status"],
     }
 
-# ① POST /api/order/create                       需要 token，status_code=201
-#    成功 → {"order_id": 1, "item": "...", "amount": 9.9, "status": "created"}
-#    ★ 要做的两件事：往 orders 表插一条；同时把 users.balance 扣掉 amount
-#    余额不足 → 400 {"detail": "余额不足"}
-#    （amount <= 0 已经由 OrderIn 的 Field(gt=0) 自动挡成 422，不用你写）·                                              
+
+# ═══════════════════════════════════════════════════════════════════
+# 剩下两个接口，你来写
+# ═══════════════════════════════════════════════════════════════════
+
+# ── ① POST /api/order/create ───────────────────────────────────────
 #
-# ② GET /api/order/{order_id}                    需要 token
-#    是本人的订单 → 200 {"order_id","item","amount","status"}
-#    订单不存在   → 404
-#    ★ 是【别人的】订单 → 403    ← 这是重点：水平越权场景，
-#                                  也是测开面试最爱问的「接口测试要覆盖哪些异常场景」
-#
-# ③ GET /api/order/list                          需要 token
-#    只返回【当前用户】的订单，且支持 ?status=created 过滤
-#
-# ★ 判断格：
-#   写完之后自己想 —— 这三个接口里，哪个最容易被开发写出漏洞？为什么？
-#   提示：想想「谁有权限看这条数据」这件事，服务端是靠什么判断的。
+# ★ 打样说明：这个接口我完整写出来，你逐行读。
+#   它要做的两件写操作必须【一起成功或一起失败】，这是它的核心。
+@app.post("/api/order/create", status_code=201)
+def create_order(body: OrderIn, user: str = Depends(current_user)):
+    """创建订单（需要登录）。
+
+    要改两处数据：
+      ① 往 orders 插一条
+      ② 把 users.balance 扣掉 amount
+
+    ★ 为什么这两步必须在一个事务里：
+      如果插完订单、扣款之前出错了，就会出现"订单存在但没付钱"的脏数据。
+      SQLite 的规则是：**没 commit 的写操作，连接一关就回滚**。
+      所以下面所有写操作都放在同一个 with 里，最后统一 commit。
+    """
+    with closing(get_conn()) as conn:
+        # 第一步：查当前用户的余额
+        #   user 是 token 解出来的，不是客户端传的 —— 所以查谁的钱是可信的
+        row = conn.execute(
+            "SELECT balance FROM users WHERE username = ?", (user,)
+        ).fetchone()
+
+        # 第二步：余额不够就拒绝
+        #   ★ 注意这里是 raise，直接抛出去。
+        #     抛出后 with 会关掉连接 —— 此时还没有任何写操作，什么都不用回滚。
+        if row["balance"] < body.amount:
+            raise HTTPException(status_code=400, detail="余额不足")
+
+        # 第三步：插订单
+        #   cur.lastrowid 就是刚插入那一行的自增 id
+        #   （往上翻 register() 里也是这么拿新用户 id 的）
+        cur = conn.execute(
+            "INSERT INTO orders (username, item, amount) VALUES (?, ?, ?)",
+            (user, body.item, body.amount),
+        )
+        order_id = cur.lastrowid
+
+        # 第四步：扣余额
+        #   ★ 归属条件 username = ? 不能少 —— 否则会把所有人的钱都扣了
+        conn.execute(
+            "UPDATE users SET balance = balance - ? WHERE username = ?",
+            (body.amount, user),
+        )
+
+        # 第五步：提交
+        #   ★ 这一行之前的所有写操作算【一个事务】。
+        #     如果第四步崩了、没走到这里，连接一关，第三步的 INSERT 也会被回滚
+        #     —— 不会留下"订单建了但没扣钱"的脏数据。
+        conn.commit()
+
+    # 第六步：返回。字段名按顶部契约，数据库列名 id 对外叫 order_id
+    return {
+        "order_id": order_id,
+        "item": body.item,
+        "amount": body.amount,
+        "status": "created",
+    }
