@@ -79,7 +79,30 @@ if ($depExit -ne 0) {
     exit 1
 }
 
-# ── 1) 起被测系统 ───────────────────────────────────────────────────
+# ── 1) 挑一个【空闲端口】起被测系统 ─────────────────────────────────
+#
+# ★ 为什么必须挑空闲端口，而不是硬用 8000：
+#   如果本机已经有一个常驻服务占着 8000，我们再起一个会 **绑不上端口而退出**，
+#   但健康检查却会成功 —— 因为**别人的**服务在应答。
+#   于是你以为在测刚启动的服务，其实测的是那个旧服务。
+#   （这个坑我踩了三次：改了代码却一直看到旧行为。）
+#
+function Test-PortFree {
+    param([int]$P)
+    -not (Get-NetTCPConnection -LocalPort $P -State Listen -ErrorAction SilentlyContinue)
+}
+
+if (-not (Test-PortFree $Port)) {
+    Write-Host "[ci] 端口 $Port 已被占用，另找一个空闲端口..." -ForegroundColor Yellow
+    $Port = 0
+    for ($try = 8010; $try -le 8099; $try++) {
+        if (Test-PortFree $try) { $Port = $try; break }
+    }
+    if ($Port -eq 0) {
+        Write-Host "[ci] 8010-8099 全被占用，无法启动被测系统" -ForegroundColor Red
+        exit 1
+    }
+}
 Write-Host "[ci] 启动被测系统（端口 $Port）..." -ForegroundColor Cyan
 
 # ★ 为什么不用 Start-Process：
@@ -116,7 +139,26 @@ if (-not $ready) {
     Stop-SutProcess $proc
     exit 1
 }
-Write-Host "[ci] 被测系统已就绪（等待 $i 秒）" -ForegroundColor Green
+
+# ★ 就绪 ≠ 是我们的那个在应答 —— 但【只能提醒，不能中止】。
+#
+#   为什么降级成警告：这个环境里 `Get-NetTCPConnection` 报的 OwningProcess
+#   并不可靠（同一台机器上出现过 "taskkill 说进程不存在"、"PID 对不上" 等情况），
+#   拿它做硬判定会误杀正常服务 —— 那比原来的问题更糟。
+#
+#   真正有效的防护其实是上面那条【先挑空闲端口】：
+#   端口本来是空的、我们又是第一个去绑的，基本不存在"测到别人的服务"。
+#   这里的提示只留个线索，方便以后排查。
+$owner = (Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue).OwningProcess |
+         Select-Object -Unique
+if ($owner -and -not ($owner -contains $proc.Id)) {
+    Write-Host "[ci] 提示：端口 $Port 报出的 PID($($owner -join ',')) 与启动的 PID($($proc.Id)) 不一致。" -ForegroundColor Yellow
+    Write-Host "[ci]      本环境的端口归属信息不可靠，仅作提示，继续执行。" -ForegroundColor DarkGray
+}
+Write-Host "[ci] 被测系统已就绪（等待 $i 秒，PID=$($proc.Id)）" -ForegroundColor Green
+
+# ★ 把地址告诉测试框架 —— 见 common/config.py 的 AUTOTEST_BASE_URL
+$env:AUTOTEST_BASE_URL = "http://127.0.0.1:$Port"
 
 # ── 2) 跑测试 ───────────────────────────────────────────────────────
 try {

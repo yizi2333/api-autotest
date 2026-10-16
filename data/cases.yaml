@@ -79,17 +79,54 @@ login_negative:
   #    ★ 判断格：这三条的期望值都要你先想清楚「应该是多少」，
   #      再去测实际值。有差异就是发现的问题 —— 面试时讲这个比背用例设计方法强十倍。
 
-# ── 订单接口（TODO D5：等你 D2 写完订单模块后自己建这一组）──────────
-# order_negative:
-#   - case_id: ORDER-001
-#     title: 未登录创建订单
-#     expect_status: 401
-#   - case_id: ORDER-002
-#     title: 金额为 0
-#     expect_status: 422
-#   - case_id: ORDER-003
-#     title: 金额超过余额
-#     expect_status: 400
-#   - case_id: ORDER-004
-#     title: 查询【别人的】订单（水平越权）
-#     expect_status: 403
+# ── 订单接口：异常场景 ──────────────────────────────────────────────
+#
+# ★ 这一组比账号那组多三个字段：auth / item / amount。
+#   因为「构造这个请求」需要它们。
+#   ★ 数据驱动的前提：**把构造请求所需的一切都放进数据里** ——
+#     否则测试代码里就得写 if 来区分，那就失去数据驱动的意义了。
+order_negative:
+  - case_id: ORDER-001
+    title: 未登录创建订单
+    auth: none                 # none = 不带 token；required = 带登录后的 token
+    item: "测试商品"
+    amount: 1
+    expect_status: 401
+    priority: 1
+    case_type: negative
+
+  - case_id: ORDER-002
+    title: 金额为 0（OrderIn 的 Field(gt=0) 自动挡成 422）
+    auth: required
+    item: "测试商品"
+    amount: 0
+    expect_status: 422
+    priority: 1
+    case_type: negative
+
+  - case_id: ORDER-003
+    title: 金额超过余额
+    auth: required
+    item: "测试商品"
+    amount: 99999
+    expect_status: 400
+    priority: 1
+    case_type: negative
+
+
+# ── 订单接口：台账（★ 这一组【不参与参数化】）──────────────────────
+#
+# ★ 为什么单列一组：
+#   ORDER-004 和上面三条【形状不同】—— 它要两个账号交叉验证
+#   （A 下单、B 去查），没法用"同一段代码换数据"跑出来。
+#   硬塞进 order_negative 会让测试函数里长出一堆 if。
+#
+#   它的实现单独写在 testcases/test_order.py::test_order_idor，
+#   这里登记只是为了「用例台账」完整。
+order_manual_log:
+  - case_id: ORDER-004
+    title: 查询【别人的】订单（水平越权）—— 实现见 test_order_idor
+    expect_status: 403
+    priority: 0                # ★ P0：这是【数据泄漏】，不是普通校验失败，必须拦发版
+    case_type: negative
+    design_method: 场景法      # 需要两个账号走一遍完整链路，属场景法

@@ -40,4 +40,19 @@ def get_config() -> dict:
             f"未知环境 {name!r}，可选：{list(ENVS)}。"
             f"检查环境变量 AUTOTEST_ENV。"
         )
-    return {"env": name, **ENVS[name]}
+    cfg = {"env": name, **ENVS[name]}
+
+    # ★ 允许用环境变量覆盖 base_url。
+    #
+    #   为什么需要这个：
+    #     如果本机已经有一个常驻的 uvicorn 占着 8000，脚本再起一个会【绑不上端口】——
+    #     而它的健康检查却会成功（因为**别人的**服务在应答）。
+    #     结果就是：你以为在测刚启动的服务，实际上测的是那个常驻的旧服务。
+    #     （这个坑我真踩过：改了代码却一直看到旧行为，排查了三次。）
+    #
+    #   有了这个覆盖，脚本就可以把服务起在别的空闲端口，
+    #   再用 AUTOTEST_BASE_URL 告诉测试"去那儿测"，两边就不会串台。
+    override = os.getenv("AUTOTEST_BASE_URL")
+    if override:
+        cfg["base_url"] = override.rstrip("/")
+    return cfg
